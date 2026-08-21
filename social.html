@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>found-footage — Social Card</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#060810;--teal:#00d4ff;--purple:#a78bfa;--amber:#f59e0b;--green:#34d399;--red:#f87171;
+  --text:#f0f4ff;--dim:rgba(240,244,255,.5);
+  --font:'Space Grotesk',system-ui,sans-serif;
+  --mono:'JetBrains Mono',ui-monospace,Menlo,monospace;
+}
+html,body{width:1200px;height:630px;overflow:hidden;background:var(--bg);color:var(--text);font-family:var(--font)}
+.bg{position:absolute;inset:0;overflow:hidden}
+.bg-gradient{position:absolute;inset:0;
+  background:radial-gradient(ellipse 80% 60% at 15% 50%,rgba(124,58,237,.22) 0%,transparent 55%),
+             radial-gradient(ellipse 60% 70% at 85% 20%,rgba(0,212,255,.16) 0%,transparent 55%),
+             linear-gradient(180deg,#060810 0%,#0b0820 50%,#060810 100%);
+}
+canvas{position:absolute;inset:0}
+.term{
+  position:absolute;top:50%;right:56px;transform:translateY(-50%);
+  width:492px;
+  background:rgba(8,10,20,.78);
+  border:1px solid rgba(255,255,255,.10);
+  border-radius:14px;
+  box-shadow:0 30px 80px rgba(0,0,0,.55),0 0 0 1px rgba(0,212,255,.06) inset;
+  overflow:hidden;font-family:var(--mono);
+}
+.term-head{display:flex;align-items:center;gap:8px;padding:12px 16px;
+  background:rgba(255,255,255,.04);border-bottom:1px solid rgba(255,255,255,.06)}
+.term-head .dot{width:11px;height:11px;border-radius:50%;background:#4a4f60}
+.term-head .dot.r{background:#ff5f56}
+.term-head .dot.y{background:#ffbd2e}
+.term-head .dot.g{background:#27c93f}
+.term-head .label{margin-left:8px;font-size:11px;color:rgba(255,255,255,.4);letter-spacing:.08em;text-transform:uppercase}
+.term-body{padding:18px 22px 20px;font-size:12.5px;line-height:1.8;color:rgba(220,228,255,.55)}
+.term-body .prompt{color:var(--teal);user-select:none}
+.term-body .cmd{color:#fff}
+.term-body .out{display:block}
+.term-body .ok{color:var(--green);font-weight:600}
+.term-body .file{color:#fff;font-weight:600}
+.term-body .val{color:rgba(167,139,250,.9)}
+.term-body .big{color:var(--amber);font-weight:600}
+.term-body .muted{color:rgba(220,228,255,.34)}
+.term-body .indent{padding-left:14px}
+.content{position:absolute;top:50%;left:76px;transform:translateY(-50%);max-width:520px;z-index:10}
+.tag{font-size:12.5px;font-weight:600;letter-spacing:.30em;text-transform:uppercase;color:var(--teal);opacity:.9;margin-bottom:20px}
+.tag .sep{opacity:.35;margin:0 9px}
+.title{font-size:82px;font-weight:700;line-height:.94;letter-spacing:-.035em;
+  background:linear-gradient(130deg,#fff 18%,#a5d8ff 55%,#9b8cff 92%);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:18px}
+.tagline{font-size:19px;font-weight:400;color:var(--dim);line-height:1.45;max-width:480px;margin-bottom:26px}
+.tagline b{color:rgba(240,244,255,.82);font-weight:600}
+.pill{display:inline-flex;align-items:center;gap:8px;background:rgba(255,255,255,.05);
+  border:1px solid rgba(255,255,255,.12);border-radius:30px;padding:9px 18px;font-size:13px;font-weight:500;letter-spacing:.06em}
+.pill .lbl{opacity:.4;font-size:10px;text-transform:uppercase;letter-spacing:.18em}
+.pill .url{color:var(--teal);opacity:.92;font-family:var(--mono);font-size:13px}
+.footer{position:absolute;bottom:30px;left:76px;right:56px;display:flex;justify-content:space-between;align-items:center;
+  font-size:11px;font-weight:600;letter-spacing:.20em;text-transform:uppercase;color:rgba(255,255,255,.30)}
+</style>
+</head>
+<body>
+<div class="bg"><div class="bg-gradient"></div><canvas id="stars"></canvas></div>
+
+<div class="term">
+  <div class="term-head">
+    <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+    <span class="label">"Could not save recording"</span>
+  </div>
+  <div class="term-body">
+    <span class="prompt">$</span> <span class="cmd">found-footage</span><br>
+    <span class="out">&nbsp;</span>
+    <span class="out"><span class="ok">●</span> <span class="file">RPReplay_Final1787339210.mp4</span></span>
+    <span class="out indent"><span class="muted">size&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span> <span class="big">11.11 GB</span></span>
+    <span class="out indent"><span class="muted">recorded&nbsp;</span> <span class="val">2026-08-21 15:06:50</span></span>
+    <span class="out indent"><span class="muted">length&nbsp;&nbsp;&nbsp;</span> <span class="val">0:18:03</span> &nbsp;<span class="ok">✓ playable</span></span>
+    <span class="out indent"><span class="muted">video&nbsp;&nbsp;&nbsp;&nbsp;</span> <span class="val">3840x2160 @ 60 fps</span></span>
+    <span class="out">&nbsp;</span>
+    <span class="out"><span class="ok">Found 1 file.</span> <span class="muted">Not lost after all.</span></span>
+  </div>
+</div>
+
+<div class="content">
+  <div class="tag">macOS<span class="sep">·</span>Zero Deps<span class="sep">·</span>MIT</div>
+  <h1 class="title">found<br>footage</h1>
+  <p class="tagline">Your Mac said it couldn't save the recording. <b>It saved it anyway</b> — into a folder nobody thinks to look in. This finds it.</p>
+  <div class="pill"><span class="lbl">Repo</span><span class="url">github.com/ibrews/found-footage</span></div>
+</div>
+
+<div class="footer">
+  <span>One Bash Script · No Dependencies</span>
+  <span>Read-Only Until You Say Rescue</span>
+</div>
+
+<script>
+const cv=document.getElementById('stars'),sc=cv.getContext('2d');
+cv.width=1200;cv.height=630;
+const stars=Array.from({length:90},()=>({
+  x:Math.random()*1200,y:Math.random()*630,
+  r:Math.random()*1.4+.3,o:Math.random()*.5+.15
+}));
+sc.clearRect(0,0,1200,630);
+stars.forEach(s=>{sc.beginPath();sc.arc(s.x,s.y,s.r,0,Math.PI*2);sc.fillStyle=`rgba(210,225,255,${s.o})`;sc.fill();});
+</script>
+</body>
+</html>
