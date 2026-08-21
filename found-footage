@@ -1,0 +1,265 @@
+#!/usr/bin/env bash
+#
+# found-footage — find the macOS screen recording your Mac said it couldn't save.
+#
+# When macOS screen recording fails with "Could not save recording", the file is
+# usually still on disk. macOS writes the finished recording first, then COPIES it
+# to your chosen destination. It's the copy that fails — the original survives in a
+# directory nobody thinks to look in.
+#
+# https://github.com/ibrews/found-footage
+# MIT licensed. Alex Coulombe Presents.
+
+set -uo pipefail
+
+VERSION="0.1.0"
+
+RESCUE=0
+DEST="$HOME/Desktop"
+QUIET=0
+
+# --------------------------------------------------------------------------
+# output helpers
+# --------------------------------------------------------------------------
+if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
+  B=$'\033[1m'; DIM=$'\033[2m'; G=$'\033[32m'; Y=$'\033[33m'; R=$'\033[31m'; C=$'\033[36m'; X=$'\033[0m'
+else
+  B=""; DIM=""; G=""; Y=""; R=""; C=""; X=""
+fi
+
+say()  { [ "$QUIET" -eq 1 ] || printf '%s\n' "$*"; }
+warn() { printf '%s\n' "$*" >&2; }
+
+usage() {
+  cat <<USAGE
+${B}found-footage${X} v$VERSION — find the screen recording macOS said it couldn't save
+
+${B}USAGE${X}
+  found-footage [--rescue] [--to DIR] [--quiet] [--version] [--help]
+
+${B}OPTIONS${X}
+  --rescue      Move anything found to a safe place. Without this flag,
+                found-footage only looks and reports — it never touches a file.
+  --to DIR      Where --rescue puts files. Default: ~/Desktop
+  --quiet       Only print paths of files found (for scripting).
+  --help        This message.
+
+${B}WHY THIS EXISTS${X}
+  macOS finishes writing your recording, THEN copies it to the destination.
+  When that copy fails — usually because the disk is full, since the copy needs
+  as much free space again as the recording itself — you get an error that
+  strongly implies the recording is gone. It usually isn't.
+
+  macOS also cleans these staging directories on its own schedule, so a found
+  file is on borrowed time. Move it out.
+USAGE
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --rescue)  RESCUE=1; shift ;;
+    --to)      DEST="${2:-}"; shift 2 ;;
+    --quiet)   QUIET=1; shift ;;
+    --version) echo "found-footage $VERSION"; exit 0 ;;
+    --help|-h) usage; exit 0 ;;
+    *) warn "found-footage: unknown option '$1' (try --help)"; exit 2 ;;
+  esac
+done
+
+case "$(uname -s)" in
+  Darwin) ;;
+  *) warn "found-footage only works on macOS (this is $(uname -s))."; exit 2 ;;
+esac
+
+HAVE_FFPROBE=0
+command -v ffprobe >/dev/null 2>&1 && HAVE_FFPROBE=1
+
+# --------------------------------------------------------------------------
+# helpers
+# --------------------------------------------------------------------------
+human() {  # bytes -> human
+  awk -v b="$1" 'BEGIN{
+    split("B KB MB GB TB",u," "); i=1
+    while (b>=1024 && i<5){ b/=1024; i++ }
+    printf (i==1 ? "%d %s" : "%.2f %s"), b, u[i]
+  }'
+}
+
+filesize() { stat -f %z "$1" 2>/dev/null || echo 0; }
+
+# RPReplay_Final1787339210.mp4 -> the moment you hit record
+started_at() {
+  local base epoch
+  base=$(basename "$1")
+  epoch=$(printf '%s' "$base" | sed -n 's/[^0-9]*\([0-9]\{9,11\}\).*/\1/p')
+  [ -n "$epoch" ] || return 1
+  date -r "$epoch" '+%Y-%m-%d %H:%M:%S' 2>/dev/null
+}
+
+FOUND_LIST=""
+FOUND_N=0
+
+describe() {
+  local f="$1" label="$2" sz when dur w h fps
+  sz=$(filesize "$f")
+  [ "$sz" -lt 1048576 ] && return 0     # sub-1MB is not a recording
+
+  FOUND_N=$((FOUND_N + 1))
+  FOUND_LIST="${FOUND_LIST}${f}"$'\n'
+
+  if [ "$QUIET" -eq 1 ]; then printf '%s\n' "$f"; return 0; fi
+
+  say ""
+  say "  ${G}${B}●${X} ${B}$(basename "$f")${X}"
+  say "    ${DIM}$(dirname "$f")${X}"
+  say "    size     $(human "$sz")"
+
+  when=$(started_at "$f") && say "    recorded $when   ${DIM}(decoded from filename)${X}"
+
+  if [ "$HAVE_FFPROBE" -eq 1 ]; then
+    dur=$(ffprobe -v error -show_entries format=duration -of default=nw=1:nk=1 "$f" 2>/dev/null)
+    if [ -n "$dur" ]; then
+      say "    length   $(awk -v d="$dur" 'BEGIN{printf "%d:%02d:%05.2f", d/3600, (d%3600)/60, d%60}')  ${G}✓ playable${X}"
+      read -r w h fps <<<"$(ffprobe -v error -select_streams v:0 \
+        -show_entries stream=width,height,r_frame_rate -of csv=p=0 "$f" 2>/dev/null | tr ',' ' ')"
+      # r_frame_rate arrives as a rational like 60/1
+      [ -n "${fps:-}" ] && fps=$(awk -v r="$fps" 'BEGIN{split(r,a,"/"); if(a[2]>0) printf "%g", a[1]/a[2]; else printf "?"}')
+      [ -n "${w:-}" ] && say "    video    ${w}x${h} @ ${fps:-?} fps"
+      local ntracks
+      ntracks=$(ffprobe -v error -select_streams a -show_entries stream=index -of csv=p=0 "$f" 2>/dev/null | grep -c . )
+      if [ "${ntracks:-0}" -gt 1 ]; then
+        say "    ${Y}audio    $ntracks tracks — most players and YouTube use only the FIRST.${X}"
+        say "             ${Y}Check whether it's the one with sound in it.${X}"
+      fi
+    else
+      say "    ${Y}⚠ ffprobe can't read this — it may be truncated (recording interrupted).${X}"
+      say "      ${DIM}Try: untrunc, or open it in VLC, before giving up on it.${X}"
+    fi
+  else
+    say "    ${DIM}install ffmpeg to see length/resolution and confirm it's playable${X}"
+  fi
+  say "    label    ${DIM}$label${X}"
+}
+
+scan() {
+  local dir="$1" label="$2"
+  [ -d "$dir" ] || return 0
+  while IFS= read -r f; do
+    [ -n "$f" ] && describe "$f" "$label"
+  done <<<"$(find "$dir" -maxdepth 4 -type f \
+      \( -iname '*.mp4' -o -iname '*.mov' -o -iname '*.m4v' -o -iname 'RPReplay*' \) \
+      2>/dev/null)"
+}
+
+# --------------------------------------------------------------------------
+# the hunt
+# --------------------------------------------------------------------------
+say ""
+say "${B}found-footage${X} ${DIM}v$VERSION — looking for recordings macOS couldn't save${X}"
+
+TMP="${TMPDIR:-/tmp}"
+
+# The big one. Cmd-Shift-5 recordings land here when the save fails.
+scan "$HOME/Library/Application Support/com.apple.replayd"        "replayd staging (Cmd-Shift-5)"
+# Capture-in-progress scratch. Usually cleared on failure, but not always.
+scan "$TMP/com.apple.replayd"                                     "replayd temp"
+scan "$TMP/TemporaryItems"                                        "system temp"
+# QuickTime Player "New Screen Recording" keeps its own autosave.
+scan "$HOME/Library/Containers/com.apple.QuickTimePlayerX/Data/Library/Autosave Information" "QuickTime autosave"
+scan "$HOME/Library/Containers/com.apple.screencaptureui/Data"     "screencaptureui container"
+
+# --------------------------------------------------------------------------
+# results
+# --------------------------------------------------------------------------
+if [ "$FOUND_N" -eq 0 ]; then
+  [ "$QUIET" -eq 1 ] && exit 1
+  say ""
+  say "  ${Y}Nothing found.${X}"
+  say ""
+  say "  That likely means macOS already cleaned up, which it does on its own"
+  say "  schedule. The sooner you run this after the failure, the better."
+  say ""
+  say "  ${DIM}Still worth checking by hand:${X}"
+  say "    • Your recording app's own crash-recovery folder (OBS, ScreenFlow,"
+  say "      CleanShot all keep one, and none of them are searched here)."
+  say "    • Time Machine, if it ran between the recording and now."
+  say ""
+  exit 1
+fi
+
+BIGGEST=0
+while IFS= read -r f; do
+  [ -z "$f" ] && continue
+  s=$(filesize "$f"); [ "$s" -gt "$BIGGEST" ] && BIGGEST=$s
+done <<<"$FOUND_LIST"
+
+if [ "$QUIET" -eq 0 ]; then
+  say ""
+  say "  ${B}Found $FOUND_N file$([ "$FOUND_N" -eq 1 ] || echo s).${X}"
+
+  # ---- why did it fail? -------------------------------------------------
+  say ""
+  say "  ${B}Why the save probably failed${X}"
+
+  AVAIL=$(df -k / 2>/dev/null | awk 'NR==2{print $4*1024}')
+  if [ -n "${AVAIL:-}" ] && [ "$BIGGEST" -gt 0 ]; then
+    if [ "$AVAIL" -lt "$BIGGEST" ]; then
+      say "    ${R}✗ Not enough free disk.${X} Saving needs a second copy:"
+      say "      recording is $(human "$BIGGEST"), you have $(human "$AVAIL") free."
+      say "      ${DIM}Free up $(human $((BIGGEST - AVAIL + 1073741824))) and the save would have worked.${X}"
+    else
+      say "    ${G}✓${X} Free disk ($(human "$AVAIL")) exceeds the recording ($(human "$BIGGEST")) — not a space problem now."
+    fi
+  fi
+
+  LOC=$(defaults read com.apple.screencapture location 2>/dev/null)
+  LOCLAST=$(defaults read com.apple.screencapture "location-last" 2>/dev/null)
+  for candidate in "$LOC" "$LOCLAST"; do
+    [ -z "$candidate" ] && continue
+    expanded="${candidate/#\~/$HOME}"
+    if [ ! -d "$expanded" ]; then
+      say "    ${R}✗ Your configured save folder doesn't exist:${X} $candidate"
+      say "      ${DIM}Screenshot.app still points at it. Recreate it, or pick a new${X}"
+      say "      ${DIM}location: Cmd-Shift-5 → Options → Save to.${X}"
+    fi
+  done
+  say ""
+fi
+
+# --------------------------------------------------------------------------
+# rescue
+# --------------------------------------------------------------------------
+if [ "$RESCUE" -eq 1 ]; then
+  if [ ! -d "$DEST" ]; then
+    warn "found-footage: destination '$DEST' does not exist."; exit 1
+  fi
+  say "  ${B}Rescuing to $DEST${X}"
+  n=0
+  while IFS= read -r f; do
+    [ -z "$f" ] && continue
+    stamp=$(started_at "$f" | tr ' :' '-.') || stamp=""
+    ext="${f##*.}"; case "$ext" in mp4|mov|m4v) ;; *) ext="mp4" ;; esac
+    target="$DEST/recovered-recording${stamp:+-$stamp}.$ext"
+    i=2; while [ -e "$target" ]; do target="$DEST/recovered-recording${stamp:+-$stamp}-$i.$ext"; i=$((i+1)); done
+    # mv, not cp: same volume means an instant rename costing zero extra disk —
+    # which matters, because running out of disk is what caused this.
+    if mv -n "$f" "$target" 2>/dev/null; then
+      say "    ${G}✓${X} $(basename "$target")"
+      n=$((n+1))
+    else
+      warn "    ✗ could not move $f"
+      warn "      (different volume or permissions — try: cp \"$f\" \"$target\")"
+    fi
+  done <<<"$FOUND_LIST"
+  say ""
+  say "  ${G}${B}Rescued $n file$([ "$n" -eq 1 ] || echo s).${X}"
+  say ""
+else
+  if [ "$QUIET" -eq 0 ]; then
+    say "  ${B}Nothing has been moved.${X} These files sit in staging directories that"
+    say "  macOS clears on its own schedule. To move them somewhere safe:"
+    say ""
+    say "      ${C}found-footage --rescue${X}"
+    say ""
+  fi
+fi
