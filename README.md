@@ -41,7 +41,12 @@ No dependencies. It's one Bash script and it works on a stock Mac. If you have `
 ```bash
 found-footage            # look and report. Touches nothing.
 found-footage --rescue   # move whatever it found to ~/Desktop
+found-footage --rescue --to "$HOME/Recovered Footage"
 ```
+
+`--to` requires a directory. Quote paths that contain spaces. For a literal path
+whose name begins with `-`, make it unambiguous with a relative or absolute path,
+for example `--to ./-archive`.
 
 Scanning is read-only by default, on purpose — you should see what's there before anything moves.
 

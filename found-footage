@@ -58,7 +58,13 @@ USAGE
 while [ $# -gt 0 ]; do
   case "$1" in
     --rescue)  RESCUE=1; shift ;;
-    --to)      DEST="${2:-}"; shift 2 ;;
+    --to)
+      if [ $# -lt 2 ] || [ -z "${2:-}" ] || [[ "$2" == -* ]]; then
+        warn "found-footage: --to requires DIR (for a path beginning with '-', use ./-name)"
+        exit 2
+      fi
+      DEST="$2"; shift 2
+      ;;
     --quiet)   QUIET=1; shift ;;
     --version) echo "found-footage $VERSION"; exit 0 ;;
     --help|-h) usage; exit 0 ;;
